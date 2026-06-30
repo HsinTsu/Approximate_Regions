@@ -1,0 +1,32 @@
+# virtual env
+venv/
+
+# python cache
+__pycache__/
+*.pyc
+
+# jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# output
+output/
+out/
+
+# vscode
+.vscode/
+
+# legacy
+legacy
+
+# Data
+data/*
+
+# Evaluation outputs
+evaluations/*
+!evaluations/README.md
+
+# configs
+.env
