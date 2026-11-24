@@ -1,7 +1,8 @@
 from __future__ import annotations
 from collections import defaultdict, deque
-from typing import Deque, Dict, FrozenSet, List, Set, Tuple
+from typing import Deque, Dict, FrozenSet, List, Set, Tuple, Optional
 from .structures import TransitionSystemData, TSArc, States, Regions, RegionsDiscoveryResult
+from itertools import groupby
 
 # ============================================================
 # Core TS / region utilities
@@ -16,12 +17,12 @@ def switching_region(ts: TransitionSystemData, label: str) -> States:
 def extract_main_behaviour_of_label(
     ts: TransitionSystemData,
     label: str,
-    min_main_bahaviour_coverage_ratio: float = 0.8,
+    min_main_behaviour_coverage_ratio: float = 0.8,
 ) -> States:
     """
     Identify the main arcs of a label based on accumulate frequency ratio by frequency ordering.
     """
-    if not (0.0 <= min_main_bahaviour_coverage_ratio <= 1.0):
+    if not (0.0 <= min_main_behaviour_coverage_ratio <= 1.0):
         raise ValueError("main_behaviour_ratio must be in [0, 1]")
     
     label_arcs: List[TSArc] = [arc for arc in ts.arcs if arc.label == label]
@@ -34,21 +35,23 @@ def extract_main_behaviour_of_label(
     
     arcs_sorted = sorted(
         label_arcs,
-        key=lambda arc: arc.freq,
-        reverse=True,
+        key=lambda arc: (
+            -arc.freq,
+            arc.source,
+            arc.target,
+        ),
     )
 
     main_arcs:List[TSArc] = []
     
     accum_freq = 0 
-    accum_ratio = 0
-    for arc in arcs_sorted:
-        if accum_ratio >= min_main_bahaviour_coverage_ratio:
+    for _, tied_arcs in groupby(arcs_sorted, key=lambda arc: arc.freq):
+        tied_arcs = list(tied_arcs)
+        main_arcs.extend(tied_arcs)
+        accum_freq += sum(arc.freq for arc in tied_arcs)
+
+        if accum_freq / total_freq >= min_main_behaviour_coverage_ratio:
             break
-        
-        main_arcs.append(arc)
-        accum_freq += arc.freq
-        accum_ratio += arc.freq/total_freq
 
     er_main: States = frozenset(arc.source for arc in main_arcs)
     sr_main: States = frozenset(arc.target for arc in main_arcs)
@@ -91,6 +94,85 @@ def _normalized_signature(signatures: FrozenSet[str]) -> FrozenSet[str]:
         else:
             norm.add(signature)
     return frozenset(norm)
+
+def _normalize_ctype(ctype: str) -> str:
+    """
+    Normalize crossing type "in" and "out" --> "no_cross"
+    """
+    if ctype in ("in", "out"):
+        return "no_cross"
+    return ctype
+
+def _dominant_crossing_type(
+    ts: TransitionSystemData,
+    region: States,
+    label: str,
+    *,
+    tie_policy: bool = True,
+) -> Optional[str]:
+    """
+    Return the frequency-weighted dominant normalized crossing type of a label
+    with respect to a region.
+
+    For all arcs with the given label, their crossing types are computed against
+    the region and normalized into one of:
+
+    - "enter"
+    - "exit"
+    - "no_cross"
+
+    The frequency of each arc contributes to the total weight of its normalized
+    crossing type. The crossing type with the largest accumulated frequency is
+    returned as the dominant behavior of the label on this region.
+
+    Parameters
+    ----------
+    ts:
+        Transition system containing labeled arcs with frequency information.
+
+    region:
+        Candidate state set used to evaluate crossing behavior.
+
+    label:
+        Label whose arcs are evaluated.
+
+    tie_policy:
+        Policy for resolving ties between accumulated crossing-type frequencies.
+
+        - If False, return None when multiple crossing types have the same
+          maximum frequency.
+        - If True, resolve ties by preferring "exit" over
+          "no_cross" over "enter". 
+
+    Returns
+    -------
+    Optional[str]
+        The dominant normalized crossing type, or None if the label has no arcs
+        in the transition system or if a tie cannot be resolved.
+    """
+    counts: Dict[str, int] = defaultdict(int)
+
+    for arc in ts.arcs:
+        if arc.label != label:
+            continue
+        norm = _normalize_ctype(arc.crossing_type(region))
+        counts[norm] += int(getattr(arc, "freq", 1))
+
+    if not counts:
+        return None, None
+
+    max_count = max(counts.values())
+    winners = [ctype for ctype, c in counts.items() if c == max_count]
+    if len(winners) == 1:
+        return winners[0], counts
+
+    if not tie_policy:
+        return None, None
+
+    for preferred in ("exit", "enter", "no_cross"):
+        if preferred in winners:
+            return preferred, counts
+    return None, None
 
 def _violating_labels(ts: TransitionSystemData, states: States) -> Dict[str, FrozenSet[str]]:
     """
@@ -183,7 +265,7 @@ def search_minimal_regions_from_seed(
         return set(), set()
 
     queue: deque[States] = deque([seed]) # queuing states set to be checked and expanded
-    seen: Set[States] = {frozenset(seed)}
+    seen: Set[States] = {frozenset()}
     minimal_strict_regions: Regions = set()
     non_region_seen: Regions = set()
 
@@ -191,6 +273,11 @@ def search_minimal_regions_from_seed(
     while queue:
         c += 1
         current = queue.popleft()
+
+        if current in seen:
+            continue
+        else:
+            seen.add(current)
 
         if _is_region(ts, set(current)):
             minimal_strict_regions = {r for r in minimal_strict_regions if not current.issubset(r)} # remove all the superset of current region
@@ -218,7 +305,6 @@ def search_minimal_regions_from_seed(
         # add the unseen states to seen and next checking queue
         for nxt in next_sets:
             if frozenset(nxt) not in seen:
-                seen.add(nxt)
                 queue.append(nxt)
         
         # limit the total number of processed nodes(states) to prevent long computation times
@@ -258,15 +344,6 @@ def _intersect_regions(regions: Regions) -> States:
     for r in it:
         acc.intersection_update(r)
     return frozenset(acc)
-
-def _normalize_ctype(ctype: str) -> str:
-    """
-    Normalize crossing type "in" and "out" --> "no_cross"
-    """
-    if ctype in ("in", "out"):
-        return "no_cross"
-    return ctype
-
 
 def split_labels_from_signatures(
     current_ts: TransitionSystemData,
@@ -565,7 +642,7 @@ def approximate_label_splitting_algo(
     ts: TransitionSystemData,
     violation_cost_fn: ViolationCostFn,
     approx_cost_threshold: float = 0,
-    min_main_bahaviour_coverage_ratio: float = 0.8,
+    min_main_behaviour_coverage_ratio: float = 0.8,
     min_freq_to_trigger_label_splitting: int = 10
 ) -> RegionsDiscoveryResult:
     """
@@ -626,9 +703,8 @@ def approximate_label_splitting_algo(
 
         while queue:
             label = queue.popleft() # label check
-            
             # create main behaviour excitation region, switch region and frequency of label
-            er_main, sr_main, main_behaviour_freq = extract_main_behaviour_of_label(current_ts, label, min_main_bahaviour_coverage_ratio)
+            er_main, sr_main, main_behaviour_freq = extract_main_behaviour_of_label(current_ts, label, min_main_behaviour_coverage_ratio)
 
             # if main behaviour frequency of the label is too low, label splitting won't be triggered
             if main_behaviour_freq < min_freq_to_trigger_label_splitting:
@@ -670,14 +746,16 @@ def approximate_label_splitting_algo(
             # calculate pre-region intersection
             if not approximate_regions_er: 
                 # pre-region intersection calculated by strict regions
-                pre_region_intersection = _intersect_regions(strict_regions_er) 
+                strict_pre_region = [r for r in strict_regions_er if "exit" in _dominant_crossing_type(current_ts, r, label)[0]]
+                pre_region_intersection = _intersect_regions(strict_pre_region) 
             else:
                 # pre-region intersection calculated by strict regions & approximate regions
-                pre_region_intersection = _intersect_regions(strict_regions_er | approximate_regions_er)
+                approximate_pre_region = [r for r in strict_regions_er | approximate_regions_er if "exit" in _dominant_crossing_type(current_ts, r, label)[0]]
+                pre_region_intersection = _intersect_regions(approximate_pre_region)
             
             # if intersection is subset of er, there're sufficient regions to restrict main behaviour or the label
             # loosed EC satisfied
-            if pre_region_intersection.issubset(er):
+            if pre_region_intersection.issubset(er) and pre_region_intersection:
                 continue
             
             split_target_state_sets.append(er_main) # add er_main as target states set for label splitting
@@ -837,7 +915,7 @@ if __name__ == "__main__":
         ts,
         violation_cost_violating_freq,
         approx_cost_threshold=approx_cost_threshold,
-        min_main_bahaviour_coverage_ratio = min_accumulate_frequency_ratio,
+        min_main_behaviour_coverage_ratio = min_accumulate_frequency_ratio,
         min_freq_to_trigger_label_splitting = min_freq_to_trigger_label_splitting
     )
     # --- Step 3: unpack (depending on your implementation)

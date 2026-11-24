@@ -29,4 +29,7 @@ evaluations/*
 !evaluations/README.md
 
 # configs
-.env
+.env*
+
+# venv
+.venv/*

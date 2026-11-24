@@ -194,7 +194,7 @@ def _write_summary_outputs(
     min_self_loop_freq_ratio_to_state: float,
     min_self_loop_freq_amount_to_state: int,
     approx_cost_threshold: float,
-    min_main_bahaviour_coverage_ratio: float,
+    min_main_behaviour_coverage_ratio: float,
     min_freq_to_trigger_label_splitting: int,
     min_crossing_freq_ratio: float,
     min_crossing_freq_amount: float,
@@ -219,7 +219,7 @@ def _write_summary_outputs(
         "min_self_loop_freq_ratio_to_state": min_self_loop_freq_ratio_to_state,
         "min_self_loop_freq_amount_to_state": min_self_loop_freq_amount_to_state,
         "approx_cost_threshold": approx_cost_threshold,
-        "min_main_bahaviour_coverage_ratio": min_main_bahaviour_coverage_ratio,
+        "min_main_behaviour_coverage_ratio": min_main_behaviour_coverage_ratio,
         "min_freq_to_trigger_label_splitting": min_freq_to_trigger_label_splitting,
         "min_crossing_freq_ratio": min_crossing_freq_ratio,
         "min_crossing_freq_amount": min_crossing_freq_amount,
@@ -306,7 +306,7 @@ def main() -> None:
     activity_key = _env_str("ACTIVITY_KEY", "concept:name")
     direction = cast(DirectionChoice, _env_choice("DIRECTION", "backward", ["forward", "backward"]))
     min_self_loop_freq_ratio_to_state = _env_float("MIN_SELF_LOOP_FREQ_RATIO_TO_STATE", 0.2)
-    min_self_loop_freq_amount_to_state = _env_float("MIN_SELF_LOOP_FREQ_AMOUNT_TO_STATE", 10)
+    min_self_loop_freq_amount_to_state = _env_int("MIN_SELF_LOOP_FREQ_AMOUNT_TO_STATE", 10)
 
     print("=== Step 1: Build transition system ===")
     print(f"XES_PATH                           : {xes_path}")
@@ -337,16 +337,16 @@ def main() -> None:
     # ----- Approximate label splitting -----
     violation_cost_fn = get_violation_cost_fn(_env_str("VIOLATION_COST_FN", "violation_cost_violating_freq"))
     approx_cost_threshold = _env_float("APPROX_COST_THRESHOLD", 0)
-    min_main_bahaviour_coverage_ratio = _env_float("MIN_MAIN_BEHAVIOUR_COVERAGE_RATIO", 1.0)
+    min_main_behaviour_coverage_ratio = _env_float("MIN_MAIN_BEHAVIOUR_COVERAGE_RATIO", 1.0)
     min_freq_to_trigger_label_splitting = _env_int("MIN_FREQ_TO_TRIGGER_LABEL_SPLITTING", 10)
     if not _env_bool("APPROXIMATE_REGION_METHOD", True):
         approx_cost_threshold = 0
-        min_main_bahaviour_coverage_ratio = 1
+        min_main_behaviour_coverage_ratio = 1
         min_freq_to_trigger_label_splitting = 0
 
     print("\n=== Step 2: Approximate label splitting ===")
     print(f"APPROX_COST_THRESHOLD              : {approx_cost_threshold}")
-    print(f"MIN_ACCUMULATE_FREQUENCY_RATIO     : {min_main_bahaviour_coverage_ratio}")
+    print(f"MIN_ACCUMULATE_FREQUENCY_RATIO     : {min_main_behaviour_coverage_ratio}")
     print(f"MIN_FREQ_TO_TRIGGER_LABEL_SPLITTING: {min_freq_to_trigger_label_splitting}")
 
     if _env_bool("APPROXIMATE_REGION_METHOD", True):
@@ -354,7 +354,7 @@ def main() -> None:
             ts,
             violation_cost_fn,
             approx_cost_threshold=approx_cost_threshold,
-            min_main_bahaviour_coverage_ratio=min_main_bahaviour_coverage_ratio,
+            min_main_behaviour_coverage_ratio=min_main_behaviour_coverage_ratio,
             min_freq_to_trigger_label_splitting=min_freq_to_trigger_label_splitting,
         )
     else:
@@ -371,6 +371,17 @@ def main() -> None:
     print(f"Final labels      : {len(final_labels)}")
     print(f"Strict regions    : {len(strict_regions)}")
     print(f"Approx. regions   : {len(approx_regions)}")
+    # print(strict_regions)
+    # input()
+    # text_file = open("/Users/sunghsintsu/Desktop/Thesis/approximate region.txt", "w")
+
+    # text_file.write(str(approx_regions))
+
+    # text_file.close()
+    
+    # input()
+    # print(final_ts)
+    # input()
 
     # ----- Regions -> Places -----
     min_crossing_freq_ratio = _env_float("MIN_CROSSING_FREQ_RATIO", 0.05)
@@ -393,6 +404,9 @@ def main() -> None:
     )
 
     print("Places generated.")
+    # for p in places:
+    #     print(p.place_id, p.pre, p.post, p.m0, p.fm, p.states)
+    #     print("                       ")
     print(f"Places: {len(places)}")
 
     # ----- Places -> Petri net -----
@@ -404,6 +418,7 @@ def main() -> None:
         net_name=net_name,
         labels=final_labels,
         self_loop_arcs=self_loop_arcs,
+        invalid_cleanup = True
     )
 
     try:
@@ -477,7 +492,7 @@ def main() -> None:
             min_self_loop_freq_ratio_to_state=min_self_loop_freq_ratio_to_state,
             min_self_loop_freq_amount_to_state=min_self_loop_freq_amount_to_state,
             approx_cost_threshold=approx_cost_threshold,
-            min_main_bahaviour_coverage_ratio=min_main_bahaviour_coverage_ratio,
+            min_main_behaviour_coverage_ratio=min_main_behaviour_coverage_ratio,
             min_freq_to_trigger_label_splitting=min_freq_to_trigger_label_splitting,
             min_crossing_freq_ratio=min_crossing_freq_ratio,
             min_crossing_freq_amount=min_crossing_freq_amount,
